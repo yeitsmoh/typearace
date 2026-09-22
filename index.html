@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>TypeaRace</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&family=Lora:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    /* ── Multiplayer extras ── */
+    .mp-room-code { font-size:2rem; font-weight:700; letter-spacing:.2em; color:var(--accent,#7c3aed); }
+    .mp-player-row { display:flex; align-items:center; gap:.75rem; padding:.5rem 0; border-bottom:1px solid var(--input-border,#e0e0e0); }
+    .mp-player-row:last-child { border-bottom:none; }
+    .mp-player-name { font-weight:600; min-width:120px; }
+    .mp-player-bar-wrap { flex:1; background:var(--input-border,#e0e0e0); border-radius:99px; height:12px; overflow:hidden; }
+    .mp-player-bar { height:100%; border-radius:99px; background:var(--accent,#7c3aed); transition:width .3s ease; }
+    .mp-player-wpm { font-size:.85em; color:var(--text-secondary,#888); min-width:60px; text-align:right; }
+    .mp-crown { font-size:1.1rem; }
+    #mp-chat-wrap { margin-top:1rem; border:1px solid var(--input-border,#e0e0e0); border-radius:8px; overflow:hidden; }
+    #mp-chat-messages { height:120px; overflow-y:auto; padding:.5rem; font-size:.85em; background:var(--bg-secondary,#fafafa); }
+    .mp-chat-line { margin-bottom:.25rem; }
+    .mp-chat-line .mp-chat-who { font-weight:600; }
+    #mp-chat-row { display:flex; }
+    #mp-chat-input { flex:1; border:none; border-top:1px solid var(--input-border,#e0e0e0); padding:.5rem; background:transparent; font-family:inherit; }
+    #mp-chat-send { padding:.5rem 1rem; border:none; border-top:1px solid var(--input-border,#e0e0e0); border-left:1px solid var(--input-border,#e0e0e0); cursor:pointer; background:var(--accent,#7c3aed); color:#fff; font-weight:600; }
+    .mp-results-table { width:100%; border-collapse:collapse; margin-top:1rem; }
+    .mp-results-table th, .mp-results-table td { padding:.5rem .75rem; text-align:left; border-bottom:1px solid var(--input-border,#e0e0e0); }
+    .mp-results-table th { font-weight:700; }
+    .winner-row { background:rgba(124,58,237,.08); font-weight:700; }
+    .difficulty-select { padding:.4rem .6rem; border-radius:6px; border:1px solid var(--input-border,#ccc); background:var(--bg-secondary,#fff); font-family:inherit; margin-top:.5rem; }
+  </style>
+</head>
+<body>
+<main class="container">
+  <div class="header">
+    <h1>TypeaRace</h1>
+    <div class="header-actions">
+      <button id="sound-toggle-btn" class="header-btn">🔊</button>
+      <button id="theme-toggle-btn" class="header-btn"><span class="sun-icon">☀️</span><span class="moon-icon">🌙</span></button>
+      <button id="theme-selector-btn" class="header-btn">🎨</button>
+      <button id="high-scores-btn" class="header-btn">🏆</button>
+      <div id="auth-container">
+        <button id="login-btn" class="login-btn">Login</button>
+        <div id="user-profile" class="hidden" style="display:none">
+          <div id="user-profile-clickable" class="user-profile-clickable" tabindex="0">
+            <img id="user-pfp" src="" alt="" class="user-pfp">
+            <span id="user-name"></span>
+          </div>
+          <div id="profile-dropdown" class="profile-dropdown hidden">
+            <div class="dropdown-header-section">
+              <div class="dropdown-user-details">
+                <span id="dropdown-name" class="dropdown-name"></span>
+                <span id="dropdown-rank" class="rank-badge">Novice</span>
+              </div>
+            </div>
+            <div class="dropdown-stats-grid">
+              <div class="d-stat"><span class="d-stat-label">Best WPM</span><span id="dropdown-best-wpm" class="d-stat-value">0</span></div>
+              <div class="d-stat"><span class="d-stat-label">Races</span><span id="dropdown-total-races" class="d-stat-value">0</span></div>
+            </div>
+            <div class="dropdown-menu-items">
+              <button id="settings-btn" class="dropdown-item">⚙️ Settings</button>
+              <button id="logout-btn" class="dropdown-item logout">🚪 Logout</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="game-container">
+    <!-- MAIN MENU -->
+    <div id="main-menu">
+      <div class="main-menu-grid">
+        <div class="menu-card" data-menu="solo"><div class="card-icon">👤</div><h3>Solo Practice</h3><p>Hone your skills with various time trials and quotes.</p></div>
+        <div class="menu-card" data-menu="ai"><div class="card-icon">🤖</div><h3>Race AI</h3><p>Compete against an AI opponent with adjustable difficulty.</p></div>
+        <div class="menu-card" data-menu="multiplayer"><div class="card-icon">🌐</div><h3>Multiplayer</h3><p>Create or join a room and race friends in real time.</p></div>
+        <div class="menu-card" data-menu="zen"><div class="card-icon">🧘</div><h3>Zen Mode</h3><p>Relax and type without pressure. No timers, no scores.</p></div>
+        <div class="menu-card" id="community-quotes-btn"><div class="card-icon">✍️</div><h3>Quote Hub</h3><p>Create your own quotes or race against community submissions.</p></div>
+      </div>
+    </div>
+
+    <!-- GAME UI -->
+    <div id="game-ui-container" class="hidden">
+      <button id="back-to-menu-btn" class="secondary-btn back-btn">&larr; Back to Modes</button>
+      <div id="game-modes" class="game-modes">
+        <button class="mode-btn active" data-mode="quote" data-time="0">Quote</button>
+        <button class="mode-btn" data-mode="time" data-time="60">1 min</button>
+        <button class="mode-btn" data-mode="time" data-time="120">2 min</button>
+        <button class="mode-btn" data-mode="time" data-time="300">5 min</button>
+        <button class="mode-btn" data-mode="time" data-time="600">10 min</button>
+        <button class="mode-btn" data-mode="sudden-death" data-time="0">Sudden Death</button>
+        <button class="mode-btn" data-mode="code-breaker" data-time="0">Code Breaker</button>
+      </div>
+      <div id="ai-difficulty-sliders" class="difficulty-selector hidden">
+        <h3>AI Settings</h3>
+        <div class="slider-group">
+          <label class="slider-label">AI Speed</label>
+          <input type="range" id="ai-wpm-slider" min="20" max="200" value="60" step="5">
+          <span id="ai-wpm-value" class="slider-value">60 WPM</span>
+        </div>
+        <div class="slider-group">
+          <label class="slider-label">AI Mistake Rate</label>
+          <input type="range" id="ai-mistake-slider" min="0" max="10" value="2.5" step="0.5">
+          <span id="ai-mistake-value" class="slider-value">2.5%</span>
+        </div>
+      </div>
+      <div id="difficulty-selector" class="difficulty-selector hidden">
+        <h3>Difficulty</h3>
+        <div class="difficulty-buttons">
+          <button class="difficulty-btn" data-difficulty="beginner">Beginner</button>
+          <button class="difficulty-btn active" data-difficulty="easy">Easy</button>
+          <button class="difficulty-btn" data-difficulty="medium">Medium</button>
+          <button class="difficulty-btn" data-difficulty="hard">Hard</button>
+          <button class="difficulty-btn" data-difficulty="proficient">Proficient</button>
+          <button class="difficulty-btn" data-difficulty="expert">Expert</button>
+          <button class="difficulty-btn" data-difficulty="master">Master</button>
+          <button class="difficulty-btn" data-difficulty="grandmaster">Grandmaster</button>
+          <button class="difficulty-btn" data-difficulty="custom">Custom</button>
+        </div>
+        <div id="custom-wpm-container" class="custom-wpm-container hidden">
+          <label>Target WPM: <input type="number" id="custom-wpm-input" value="75" min="10" max="300"/></label>
+        </div>
+      </div>
+      <div id="stats" class="stats-container">
+        <div class="stat"><p class="label">Time</p><p id="timer" class="value">0s</p></div>
+        <div class="stat"><p class="label">WPM</p><p id="wpm" class="value">0</p></div>
+        <div class="stat"><p class="label">Accuracy</p><p id="accuracy" class="value">100%</p></div>
+      </div>
+      <div id="race-track-container" class="race-track hidden">
+        <div class="finish-line"></div>
+        <div id="race-track"></div>
+      </div>
+      <div id="progress-bar-container" class="progress-bar-container">
+        <div id="progress-bar" class="progress-bar"></div>
+      </div>
+      <div id="quote-display" class="quote-display" aria-live="polite"></div>
+      <textarea id="quote-input" class="quote-input" rows="5" aria-label="Type the quote here"
+        autofocus autocorrect="off" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
+      <div id="game-controls" class="game-controls">
+        <button id="start-btn" class="start-btn"><span class="btn-text">Start Race</span><div class="spinner" hidden></div></button>
+        <button id="stop-btn" class="stop-btn hidden">Stop Race</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ── MULTIPLAYER MODAL ── -->
+<div id="multiplayer-modal" class="modal-overlay hidden">
+  <div class="modal-content">
+    <button id="close-mp-modal-btn" class="close-btn">&times;</button>
+
+    <!-- View: selection -->
+    <div id="mp-view-select">
+      <h2>Multiplayer</h2>
+      <p class="modal-description">Race friends in real time — everyone gets the same quote!</p>
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:1rem">
+        <button id="mp-create-btn" class="start-btn" style="flex:1">🏠 Create Room</button>
+        <button id="mp-show-join-btn" class="secondary-btn" style="flex:1">🔗 Join Room</button>
+      </div>
+      <div id="mp-join-form" class="hidden" style="margin-top:1rem">
+        <input id="mp-join-code-input" type="text" placeholder="Enter room code…" maxlength="5"
+          style="text-transform:uppercase;letter-spacing:.15em;font-size:1.2rem;padding:.5rem;border:1px solid var(--input-border,#ccc);border-radius:6px;width:100%;box-sizing:border-box">
+        <button id="mp-do-join-btn" class="start-btn" style="margin-top:.5rem;width:100%">Join</button>
+      </div>
+      <p id="mp-select-error" class="error-message hidden" style="margin-top:.5rem"></p>
+    </div>
+
+    <!-- View: lobby -->
+    <div id="mp-view-lobby" class="hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+        <h2 style="margin:0">Lobby</h2>
+        <button id="mp-back-btn" class="secondary-btn" style="font-size:.85em">← Leave</button>
+      </div>
+      <div style="text-align:center;margin-bottom:1rem">
+        <p style="margin:0;font-size:.9em;color:var(--text-secondary,#666)">Room code</p>
+        <div id="mp-display-code" class="mp-room-code">—</div>
+        <button id="mp-copy-code-btn" class="secondary-btn" style="margin-top:.3rem;font-size:.8em">Copy</button>
+      </div>
+      <div id="mp-player-list" style="margin-bottom:1rem"></div>
+      <div id="mp-host-controls" class="hidden">
+        <label style="font-size:.85em;display:block;margin-bottom:.3rem">Difficulty:
+          <select id="mp-difficulty-select" class="difficulty-select">
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+            <option value="expert">Expert</option>
+          </select>
+        </label>
+        <button id="mp-start-btn" class="start-btn" style="width:100%;margin-top:.5rem">🏁 Start Race</button>
+      </div>
+      <p id="mp-waiting-msg" class="hidden" style="text-align:center;color:var(--text-secondary,#888);margin-top:.5rem">Waiting for host to start…</p>
+      <div id="mp-chat-wrap">
+        <div id="mp-chat-messages"></div>
+        <div id="mp-chat-row">
+          <input id="mp-chat-input" type="text" placeholder="Chat…" maxlength="200" autocomplete="off">
+          <button id="mp-chat-send">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- View: results -->
+    <div id="mp-view-results" class="hidden">
+      <h2 id="mp-winner-heading">🏆 Winner!</h2>
+      <table class="mp-results-table">
+        <thead><tr><th>#</th><th>Player</th><th>WPM</th><th>Accuracy</th></tr></thead>
+        <tbody id="mp-results-tbody"></tbody>
+      </table>
+      <button id="mp-play-again-btn" class="start-btn" style="margin-top:1rem;width:100%">Play Again</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MULTIPLAYER RACE OVERLAY ── (live progress bars shown above game) -->
+<div id="mp-race-panel" class="hidden" style="position:fixed;top:0;left:0;right:0;background:var(--bg-primary,#fff);border-bottom:2px solid var(--accent,#7c3aed);padding:.5rem 1rem;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.12)">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.3rem">
+    <strong>🌐 Multiplayer Race</strong>
+    <button id="mp-leave-race-btn" class="secondary-btn" style="font-size:.8em;padding:.2rem .6rem">Leave</button>
+  </div>
+  <div id="mp-race-bars"></div>
+</div>
+
+<!-- AUTH -->
+<div id="auth-modal" class="modal-overlay hidden">
+  <div class="modal-content">
+    <button id="close-auth-modal-btn" class="close-btn">&times;</button>
+    <h2>Welcome</h2>
+    <div class="auth-tabs">
+      <button class="auth-tab-btn active" data-form="login-form">Login</button>
+      <button class="auth-tab-btn" data-form="signup-form">Sign Up</button>
+    </div>
+    <div id="login-form" class="auth-form">
+      <input type="email" id="login-email" placeholder="Email" required>
+      <input type="password" id="login-password" placeholder="Password" required>
+      <button id="do-login-btn" class="start-btn">Login</button>
+    </div>
+    <div id="signup-form" class="auth-form hidden">
+      <input type="text" id="signup-name" placeholder="Your Name" required>
+      <input type="email" id="signup-email" placeholder="Email" required>
+      <input type="password" id="signup-password" placeholder="Password" required>
+      <button id="do-signup-btn" class="start-btn">Sign Up</button>
+    </div>
+    <p id="auth-error" class="error-message hidden"></p>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div id="settings-modal" class="modal-overlay hidden">
+  <div class="modal-content">
+    <button id="close-settings-modal-btn" class="close-btn">&times;</button>
+    <h2>Account Settings</h2>
+    <div class="settings-container">
+      <div class="settings-tabs">
+        <button class="settings-tab-btn active" data-tab="profile">Profile</button>
+        <button class="settings-tab-btn" data-tab="security">Security</button>
+        <button class="settings-tab-btn" data-tab="achievements">Achievements</button>
+      </div>
+      <div id="profile-tab" class="settings-tab-content">
+        <h3>Edit Profile</h3>
+        <div class="form-group"><label>Display Name</label><input type="text" id="change-name-input" maxlength="20"></div>
+        <div class="form-group"><label>Bio</label><textarea id="profile-bio-input" maxlength="100"></textarea></div>
+        <div class="form-group"><label>Email</label><p id="settings-email" class="settings-text"></p></div>
+        <div class="form-group"><label>Joined</label><p id="settings-join-date" class="settings-text-light"></p></div>
+        <button id="save-profile-btn" class="start-btn full-width">Save Profile</button>
+      </div>
+      <div id="security-tab" class="settings-tab-content hidden">
+        <h3>Change Password</h3>
+        <div class="form-group"><label>Current Password</label><input type="password" id="current-password"></div>
+        <div class="form-group"><label>New Password</label><input type="password" id="new-password"></div>
+        <div class="form-group"><label>Confirm New Password</label><input type="password" id="confirm-password"></div>
+        <button id="save-password-btn" class="start-btn">Save Changes</button>
+      </div>
+      <div id="achievements-tab" class="settings-tab-content hidden">
+        <h3>Your Achievements</h3>
+        <div id="achievements-grid" class="achievements-grid"></div>
+      </div>
+      <p id="settings-feedback" class="feedback-message hidden"></p>
+    </div>
+  </div>
+</div>
+
+<!-- RESULTS (solo) -->
+<div id="results-modal" class="modal-overlay hidden">
+  <div class="modal-content">
+    <h2 id="results-title">Race Complete!</h2>
+    <div id="results-stats-grid">
+      <div class="results-stat"><p class="label">Time</p><p id="results-time" class="value">0s</p></div>
+      <div class="results-stat"><p class="label">WPM</p><p id="results-wpm" class="value">0</p></div>
+      <div class="results-stat"><p class="label">Accuracy</p><p id="results-accuracy" class="value">100%</p></div>
+    </div>
+    <div class="results-actions">
+      <button id="new-race-btn" class="start-btn">New Race</button>
+      <button id="share-score-btn" class="secondary-btn">Share Score 📋</button>
+    </div>
+  </div>
+</div>
+
+<!-- HIGH SCORES -->
+<div id="high-scores-modal" class="modal-overlay hidden">
+  <div class="modal-content">
+    <button id="close-high-scores-modal-btn" class="close-btn">&times;</button>
+    <h2>High Scores</h2>
+    <div class="scores-tabs">
+      <button class="scores-tab-btn active" data-tab="personal">Personal</button>
+      <button class="scores-tab-btn" data-tab="global">Global</button>
+    </div>
+    <div id="personal-scores-tab" class="scores-tab-content">
+      <div id="high-scores-list"></div>
+      <p id="no-scores-msg" class="hidden">No scores yet. Play a game!</p>
+      <button id="clear-scores-btn" class="secondary-btn" style="margin-top:.5rem">Clear Scores</button>
+    </div>
+    <div id="global-scores-tab" class="scores-tab-content hidden">
+      <div id="global-scores-list"></div>
+      <p id="no-global-scores-msg" class="hidden">Leaderboard is empty!</p>
+    </div>
+  </div>
+</div>
+
+<!-- THEME -->
+<div id="theme-modal" class="modal-overlay hidden">
+  <div class="modal-content">
+    <button id="close-theme-modal-btn" class="close-btn">&times;</button>
+    <h2>Select a Theme</h2>
+    <div id="theme-options" class="theme-options">
+      <div class="theme-option" data-theme="default"><div class="theme-swatch" style="background:#f3e5f5"></div><p>Default</p></div>
+      <div class="theme-option" data-theme="night-owl"><div class="theme-swatch" style="background:#1a1a2e"></div><p>Night Owl</p></div>
+      <div class="theme-option" data-theme="oceanic"><div class="theme-swatch" style="background:#e0f7fa"></div><p>Oceanic</p></div>
+      <div class="theme-option" data-theme="sunset-glow"><div class="theme-swatch" style="background:#ffccbc"></div><p>Sunset Glow</p></div>
+      <div class="theme-option" data-theme="forest-trail"><div class="theme-swatch" style="background:#c5e1a5"></div><p>Forest Trail</p></div>
+      <div class="theme-option" data-theme="matrix"><div class="theme-swatch" style="background:#0d0208"></div><p>Matrix</p></div>
+      <div class="theme-option" data-theme="paper"><div class="theme-swatch" style="background:#fdf6e3"></div><p>Paper</p></div>
+      <div class="theme-option" data-theme="cyberpunk"><div class="theme-swatch" style="background:#0c0c2c"></div><p>Cyberpunk</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- COMMUNITY QUOTES -->
+<div id="community-quotes-modal" class="modal-overlay hidden">
+  <div class="modal-content wide-modal">
+    <button id="close-community-modal-btn" class="close-btn">&times;</button>
+    <div class="community-tabs">
+      <button class="community-tab-btn active" data-tab="browse-quotes">Browse</button>
+      <button class="community-tab-btn" data-tab="create-quote">Create Quote</button>
+    </div>
+    <div id="browse-quotes-view" class="community-tab-content">
+      <h3>Community Quotes</h3>
+      <div class="quote-filters">
+        <input type="text" id="community-quote-search" placeholder="Search…">
+        <select id="community-quote-sort"><option value="newest">Newest</option><option value="popular">Most Popular</option></select>
+      </div>
+      <div id="community-quotes-list"></div>
+      <p id="no-community-quotes-msg" class="hidden">No quotes yet. Be the first!</p>
+    </div>
+    <div id="create-quote-view" class="community-tab-content hidden">
+      <h3>Create a New Quote</h3>
+      <textarea id="new-quote-textarea" placeholder="Enter your quote (100-400 characters)…" minlength="100" maxlength="400"></textarea>
+      <div class="char-counter-container"><span id="new-quote-char-counter">0 / 400</span></div>
+      <div class="ai-enhance-container">
+        <input type="checkbox" id="ai-enhance-checkbox">
+        <label for="ai-enhance-checkbox">Enhance with AI ✨</label>
+      </div>
+      <button id="publish-quote-btn" class="start-btn"><span class="btn-text">Publish Quote</span></button>
+      <p id="create-quote-feedback" class="feedback-message hidden"></p>
+    </div>
+    <div id="ai-approval-view" class="community-tab-content hidden">
+      <h3>Review AI Enhancement</h3>
+      <div class="ai-comparison-container">
+        <div class="ai-comparison-box"><h4>Your Original</h4><p id="original-quote-preview"></p></div>
+        <div class="ai-comparison-box"><h4>AI Enhanced</h4><p id="enhanced-quote-preview"></p></div>
+      </div>
+      <div class="ai-approval-actions">
+        <button id="keep-original-btn" class="secondary-btn">Keep Original</button>
+        <button id="use-ai-version-btn" class="start-btn">Use AI Version</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ACHIEVEMENT TOAST -->
+<div id="achievement-toast" class="achievement-toast hidden">
+  <div id="achievement-toast-icon"></div>
+  <div><h4>Achievement Unlocked!</h4><p id="achievement-toast-name"></p></div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<script>
+// ── State ──
+let currentUser = null, selectedMode = 'quote', selectedDifficulty = 'easy';
+let timeLimit = 0, gameInProgress = false, startTime = null, timer = null;
+let errors = 0, lastErrorCount = 0, previousInputLength = 0;
+let totalCharsTypedInTimeMode = 0, totalErrorsInTimeMode = 0;
+let feedbackTimeout = null, isSoundOn = true, audioContext = null;
+let opponentTimers = [], opponentProgress = {};
+let currentCommunityQuoteText = '', pendingQuoteData = null;
+const AI_PAUSE = 0.03, AI_BURST = 0.05;
+const defaultPfp = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%23e0e0e0'/%3E%3Cpath d='M50 62.5c-12.4 0-22.5 10.1-22.5 22.5V95h45v-10c0-12.4-10.1-22.5-22.5-22.5z' fill='%23bdbdbd'/%3E%3Ccircle cx='50' cy='42.5' r='17.5' fill='%23bdbdbd'/%3E%3C/svg%3E";
+
+// ── Multiplayer state ──
+let mpCode = null, mpIsHost = false, mpActive = false;
+const socket = io();
+
+const $ = id => document.getElementById(id);
+const quoteDisplay = $('quote-display'), quoteInput = $('quote-input');
+const wpmEl = $('wpm'), accuracyEl = $('accuracy'), timerEl = $('timer');
+const startBtn = $('start-btn'), stopBtn = $('stop-btn');
+const progressBar = $('progress-bar'), raceTrack = $('race-track');
+const raceTrackContainer = $('race-track-container');
+
+// ── API ──
+async function api(path, opts={}) {
+  const res = await fetch(path, {headers:{'Content-Type':'application/json'},credentials:'same-origin',...opts,
+    body:opts.body?JSON.stringify(opts.body):undefined});
+  return res.json();
+}
+
+// ── Quote ──
+async function getTypingQuote() {
+  if (selectedMode==='community-quote' && currentCommunityQuoteText) { displayQuote(currentCommunityQuoteText); setLoading(false); return; }
+  setLoading(true);
+  try {
+    const d = await api('/api/quote',{method:'POST',body:{mode:selectedMode,difficulty:selectedDifficulty,custom_wpm:parseInt($('custom-wpm-input')?.value||'75')}});
+    displayQuote(d.quote);
+  } catch { displayQuote('The quick brown fox jumps over the lazy dog. Keep practicing!'); }
+  finally { setLoading(false); }
+}
+
+function displayQuote(quote) {
+  quoteDisplay.innerHTML=''; quoteDisplay.classList.toggle('code-mode',selectedMode==='code-breaker');
+  const c = selectedMode==='code-breaker'
+    ? (()=>{ const code=document.createElement('code'), pre=document.createElement('pre'); pre.appendChild(code); quoteDisplay.appendChild(pre); return code; })()
+    : quoteDisplay;
+  quote.split('').forEach(ch=>{ const s=document.createElement('span'); s.textContent=ch; c.appendChild(s); });
+  quoteInput.value=''; resetStats();
+}
+
+function setLoading(on) {
+  const sp=startBtn.querySelector('.spinner'), bt=startBtn.querySelector('.btn-text');
+  if(on){sp?.removeAttribute('hidden');if(bt)bt.textContent='Generating...';startBtn.disabled=true;}
+  else{sp?.setAttribute('hidden','true');if(bt)bt.textContent=selectedMode==='zen'?'Begin':'Start Race';startBtn.disabled=false;}
+}
+
+// ── Game ──
+function startTimers() {
+  if(selectedMode==='zen')return;
+  startTime=new Date(); gameInProgress=true;
+  if(selectedMode==='time') startCountdownTimer(); else startCountupTimer();
+  if(selectedMode==='race-ai') startOpponentRace('ai');
+}
+
+function startCountupTimer() {
+  timerEl.innerText='0s';
+  timer=setInterval(()=>{ if(!gameInProgress)return; timerEl.innerText=Math.floor((Date.now()-startTime)/1000)+'s'; },1000);
+}
+
+function startCountdownTimer() {
+  let rem=timeLimit; timerEl.innerText=fmt(rem);
+  timer=setInterval(()=>{ if(!gameInProgress)return; rem--; timerEl.innerText=fmt(rem); calcStats(); if(rem<=0)endGame(); },1000);
+}
+
+function fmt(s){ return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`; }
+
+function calcStats() {
+  const chars=quoteDisplay.querySelectorAll('span'), typed=quoteInput.value;
+  errors=0; let correct=0;
+  chars.forEach((sp,i)=>{
+    if(typed[i]==null){sp.classList.remove('correct','incorrect');}
+    else if(typed[i]===sp.textContent){sp.classList.add('correct');sp.classList.remove('incorrect');correct++;}
+    else{sp.classList.add('incorrect');sp.classList.remove('correct');errors++;}
+  });
+  accuracyEl.innerText=`${typed.length>0?Math.round(((typed.length-errors)/typed.length)*100):100}%`;
+  if(startTime){
+    const mins=(Date.now()-startTime)/60000;
+    const total=(selectedMode==='time'?totalCharsTypedInTimeMode:0)+typed.length;
+    wpmEl.innerText=mins>0?Math.round((total/5)/mins):'0';
+  }
+}
+
+function resetStats() {
+  clearInterval(timer); timer=null;
+  opponentTimers.forEach(clearTimeout); opponentTimers=[]; opponentProgress={};
+  startTime=null; gameInProgress=false; errors=0; lastErrorCount=0;
+  if(selectedMode!=='time'){totalCharsTypedInTimeMode=0;totalErrorsInTimeMode=0;}
+  timerEl.innerText=(selectedMode==='time'&&timeLimit>0)?fmt(timeLimit):'0s';
+  wpmEl.innerText='0'; accuracyEl.innerText='100%';
+  quoteInput.disabled=false; quoteInput.value=''; previousInputLength=0;
+  if(raceTrack)raceTrack.innerHTML='';
+  if(progressBar)progressBar.style.width='0%';
+}
+
+async function handleInput() {
+  if(!gameInProgress&&selectedMode!=='zen'){startTimers();playSound('start');}
+  if(selectedMode==='zen'&&!gameInProgress){gameInProgress=true;playSound('start');}
+  const curLen=quoteInput.value.length, forward=curLen>previousInputLength;
+  calcStats();
+  if(selectedMode==='sudden-death'&&errors>0){endGame('mistake');return;}
+
+  // Send multiplayer progress
+  if(mpActive&&mpCode) socket.emit('progress_update',{code:mpCode,progress:curLen});
+
+  if(forward){
+    quoteInput.classList.remove('input-incorrect-pulse','input-correct-flash');
+    void quoteInput.offsetWidth; clearTimeout(feedbackTimeout);
+    if(errors>lastErrorCount){playSound('error');quoteInput.classList.add('input-incorrect-pulse');feedbackTimeout=setTimeout(()=>quoteInput.classList.remove('input-incorrect-pulse'),300);}
+    else{playSound('keypress');quoteInput.classList.add('input-correct-flash');feedbackTimeout=setTimeout(()=>quoteInput.classList.remove('input-correct-flash'),300);}
+    const chars=quoteDisplay.querySelectorAll('span'), idx=curLen-1;
+    if(idx>=0&&idx<chars.length){
+      const cls=chars[idx].classList.contains('correct')?'char-correct-flash':'char-incorrect-flash';
+      chars[idx].classList.add(cls);
+      chars[idx].addEventListener('animationend',()=>chars[idx].classList.remove(cls),{once:true});
+    }
+  }
+  previousInputLength=curLen; lastErrorCount=errors;
+  const qLen=quoteDisplay.querySelectorAll('span').length;
+  if(progressBar&&qLen>0)progressBar.style.width=`${(curLen/qLen)*100}%`;
+  if(selectedMode==='race-ai')updateRacerPos(currentUser?.name||'You',curLen,qLen);
+
+  if(curLen===qLen&&errors===0){
+    if(selectedMode==='time'){
+      totalCharsTypedInTimeMode+=qLen; previousInputLength=0; lastErrorCount=0; errors=0;
+      await getTypingQuote();
+    } else if(selectedMode==='zen'){
+      gameInProgress=false; quoteInput.disabled=true; playSound('finish');
+    } else if(mpActive){
+      const finalWpm=_calcFinalWpm(), finalAcc=_calcFinalAcc();
+      socket.emit('player_finished',{code:mpCode,wpm:finalWpm,accuracy:finalAcc});
+      quoteInput.disabled=true;
+    } else {
+      endGame(currentUser?.email||'player');
+    }
+  }
+}
+
+function _calcFinalWpm() {
+  if(!startTime)return 0;
+  const mins=(Date.now()-startTime)/60000, total=(selectedMode==='time'?totalCharsTypedInTimeMode:0)+quoteInput.value.length;
+  return mins>0?Math.round((total/5)/mins):0;
+}
+function _calcFinalAcc() {
+  const typed=quoteInput.value; if(!typed.length)return 100;
+  return Math.round(((typed.length-errors)/typed.length)*100);
+}
+
+function updateRacerPos(id,progress,total){
+  const el=document.getElementById(`racer-${id}`); if(!el)return;
+  el.style.left=`calc(${Math.min(100,(progress/total)*100)}% - ${el.offsetWidth/2}px)`;
+}
+
+async function endGame(winner=null){
+  if(selectedMode==='zen'||(!gameInProgress&&selectedMode!=='race-players'))return;
+  gameInProgress=false; clearInterval(timer); opponentTimers.forEach(clearTimeout);
+  quoteInput.disabled=true; playSound('finish');
+  const finalTime=startTime?Math.floor((Date.now()-startTime)/1000):timeLimit;
+  const mins=finalTime/60, total=(selectedMode==='time'?totalCharsTypedInTimeMode:0)+quoteInput.value.length;
+  const totalErr=(selectedMode==='time'?totalErrorsInTimeMode:0)+errors;
+  const finalWpm=mins>0?Math.round((total/5)/mins):0;
+  const finalAcc=total>0?Math.round(((total-totalErr)/total)*100):100;
+  try {
+    const r=await api('/api/scores',{method:'POST',body:{wpm:finalWpm,accuracy:finalAcc,mode:selectedMode,difficulty:selectedDifficulty}});
+    if(r.achievements?.length)r.achievements.forEach(a=>showAchToast(a.name,a.icon));
+    const me=await api('/api/me'); if(me.user)updateAuthState(me.user);
+  }catch{}
+  if(selectedMode==='sudden-death')$('results-title').textContent=winner==='mistake'?'Mistake Made!':'Flawless!';
+  else if(selectedMode==='race-ai')$('results-title').textContent=winner==='ai'?'AI Wins!':'You Win!';
+  else $('results-title').textContent='Race Complete!';
+  $('results-time').textContent=`${finalTime}s`;
+  $('results-wpm').textContent=finalWpm;
+  $('results-accuracy').textContent=`${finalAcc}%`;
+  $('results-modal').dataset.wpm=finalWpm;
+  $('results-modal').classList.remove('hidden','modal-out');
+}
+
+async function startNewGame(){
+  if(selectedMode==='time'){totalCharsTypedInTimeMode=0;totalErrorsInTimeMode=0;}
+  stopBtn.textContent=selectedMode==='zen'?'New Quote':'Stop Race';
+  await getTypingQuote(); resetStats();
+  if(selectedMode==='race-ai'){
+    createRacer('ai','🤖',false);
+    createRacer(currentUser?.name||'You','You',true);
+    raceTrackContainer.classList.remove('hidden');
+  }
+  startBtn.classList.add('hidden'); stopBtn.classList.remove('hidden');
+}
+
+function leaveRace(){ $('results-modal').classList.add('hidden'); resetStats(); showMainMenu(); }
+
+// ── AI Opponent ──
+function calcAiDelay(wpm){ const cps=(wpm*5)/60, d=1000/cps; const r=Math.random(); let f=d+(r<AI_PAUSE?250+Math.random()*250:r<AI_PAUSE+AI_BURST?d*(0.4+Math.random()*0.2)-d:0); const rnd=d*0.35; return Math.max(20,f+Math.random()*rnd-rnd/2); }
+function aiTypeStep(id,qLen,wpm,mc){
+  if(!gameInProgress)return;
+  if(Math.random()<mc&&opponentProgress[id]>2){ const d=Math.random()<0.7?1:2; opponentTimers.push(setTimeout(()=>aiCorrect(d,id,qLen,wpm,mc),200+Math.random()*150)); return; }
+  opponentProgress[id]++; updateRacerPos(id,opponentProgress[id],qLen);
+  if(opponentProgress[id]>=qLen){endGame('ai');return;}
+  opponentTimers.push(setTimeout(()=>aiTypeStep(id,qLen,wpm,mc),calcAiDelay(wpm)));
+}
+function aiCorrect(del,id,qLen,wpm,mc){
+  if(!gameInProgress||del<=0){opponentTimers.push(setTimeout(()=>aiTypeStep(id,qLen,wpm,mc),calcAiDelay(wpm)));return;}
+  opponentProgress[id]=Math.max(0,opponentProgress[id]-1); updateRacerPos(id,opponentProgress[id],qLen);
+  opponentTimers.push(setTimeout(()=>aiCorrect(del-1,id,qLen,wpm,mc),80+Math.random()*40));
+}
+function startOpponentRace(id){
+  const qLen=quoteDisplay.querySelectorAll('span').length;
+  const wpm=parseInt($('ai-wpm-slider')?.value||'60');
+  const mc=parseFloat($('ai-mistake-slider')?.value||'2.5')/100;
+  opponentProgress[id]=0;
+  opponentTimers.push(setTimeout(()=>aiTypeStep(id,qLen,wpm,mc),500+Math.random()*500));
+}
+function createRacer(id,label,isPlayer){
+  const el=document.createElement('div'); el.id=`racer-${id}`; el.className='racer';
+  el.innerHTML=`<div class="racer-avatar">${isPlayer?'🏎️':'🤖'}</div><div class="racer-label">${label}</div>`;
+  Object.assign(el.style,{left:'0%',position:'absolute',transition:'left .3s ease',display:'flex',flexDirection:'column',alignItems:'center',transform:'translate(-50%,-50%)',top:'50%'});
+  raceTrack?.appendChild(el);
+}
+
+// ── Menu / UI ──
+function showMainMenu(){
+  $('main-menu').classList.remove('hidden'); $('game-ui-container').classList.add('hidden');
+  stopBtn.classList.add('hidden'); startBtn.classList.remove('hidden');
+  const bt=startBtn.querySelector('.btn-text'); if(bt)bt.textContent='Start Race';
+  raceTrackContainer.classList.add('hidden'); $('stats').classList.remove('hidden');
+  $('progress-bar-container').classList.remove('hidden');
+  quoteDisplay.innerHTML="<span>Click 'Start Race' to begin!</span>";
+  quoteDisplay.classList.remove('code-mode'); quoteInput.disabled=true;
+}
+
+function showGameUI(type){
+  $('main-menu').classList.add('hidden'); $('game-ui-container').classList.remove('hidden');
+  $('ai-difficulty-sliders').classList.add('hidden'); $('difficulty-selector').classList.add('hidden');
+  $('game-modes').classList.add('hidden'); $('stats').classList.remove('hidden'); $('progress-bar-container').classList.remove('hidden');
+  if(type==='solo'){ $('game-modes').classList.remove('hidden'); $('difficulty-selector').classList.remove('hidden'); selectedMode='quote'; timeLimit=0; }
+  else if(type==='ai'){ $('ai-difficulty-sliders').classList.remove('hidden'); selectedMode='race-ai'; timeLimit=0; }
+  else if(type==='zen'){ $('difficulty-selector').classList.remove('hidden'); $('stats').classList.add('hidden'); $('progress-bar-container').classList.add('hidden'); selectedMode='zen'; timeLimit=0; const bt=startBtn.querySelector('.btn-text'); if(bt)bt.textContent='Begin'; }
+  quoteDisplay.innerHTML="<span>Click 'Start Race' to begin!</span>"; resetStats();
+}
+
+// ── Auth ──
+function updateAuthState(user){
+  currentUser=user;
+  const profile=$('user-profile'), lb=$('login-btn');
+  if(user){ profile.classList.remove('hidden'); profile.style.display=''; lb.classList.add('hidden');
+    $('user-name').textContent=user.name; const pfp=$('user-pfp'); if(pfp)pfp.src=user.profilePicture||defaultPfp;
+    isSoundOn=user.isSoundOn!==false; $('sound-toggle-btn').textContent=isSoundOn?'🔊':'🔇';
+    if(user.theme)applyTheme(user.theme);
+    const s=user.stats||{}; $('dropdown-name').textContent=user.name;
+    $('dropdown-best-wpm').textContent=s.highestWpm||0; $('dropdown-total-races').textContent=s.totalRacesCompleted||0;
+  } else { profile.classList.add('hidden'); profile.style.display='none'; lb.classList.remove('hidden'); }
+}
+
+async function doLogin(){ const e=$('login-email').value.trim(), p=$('login-password').value; const r=await api('/api/login',{method:'POST',body:{email:e,password:p}}); if(r.error){$('auth-error').textContent=r.error;$('auth-error').classList.remove('hidden');return;} updateAuthState(r.user); $('auth-modal').classList.add('hidden'); }
+async function doSignup(){ const n=$('signup-name').value.trim(), e=$('signup-email').value.trim(), p=$('signup-password').value; const r=await api('/api/signup',{method:'POST',body:{name:n,email:e,password:p}}); if(r.error){$('auth-error').textContent=r.error;$('auth-error').classList.remove('hidden');return;} updateAuthState(r.user); $('auth-modal').classList.add('hidden'); }
+async function doLogout(){ await api('/api/logout',{method:'POST'}); updateAuthState(null); $('profile-dropdown').classList.add('hidden'); showMainMenu(); }
+
+// ── High Scores ──
+async function openHighScores(){ $('high-scores-modal').classList.remove('hidden'); await loadPersonalScores(); await loadGlobalScores(); }
+async function loadPersonalScores(){ const s=await api('/api/scores/personal'); const l=$('high-scores-list'); l.innerHTML=''; if(!s.length){$('no-scores-msg').classList.remove('hidden');return;} $('no-scores-msg').classList.add('hidden'); s.forEach((sc,i)=>{ const r=document.createElement('div'); r.style.cssText='display:flex;justify-content:space-between;padding:.4rem;border-bottom:1px solid var(--input-border,#ccc);font-size:.9em'; r.innerHTML=`<span>#${i+1}</span><span>${sc.wpm} WPM</span><span>${sc.accuracy}%</span><span>${sc.mode}</span><span>${new Date(sc.date).toLocaleDateString()}</span>`; l.appendChild(r); }); }
+async function loadGlobalScores(){ const s=await api('/api/scores/global'); const l=$('global-scores-list'); l.innerHTML=''; if(!s.length){$('no-global-scores-msg').classList.remove('hidden');return;} $('no-global-scores-msg').classList.add('hidden'); s.slice(0,50).forEach((sc,i)=>{ const r=document.createElement('div'); r.style.cssText='display:flex;justify-content:space-between;padding:.4rem;border-bottom:1px solid var(--input-border,#ccc);font-size:.9em'; r.innerHTML=`<span>#${i+1}</span><span>${sc.user}</span><span>${sc.wpm} WPM</span><span>${sc.accuracy}%</span>`; l.appendChild(r); }); }
+
+// ── Settings ──
+function openSettings(){ if(!currentUser)return; $('settings-modal').classList.remove('hidden'); $('change-name-input').value=currentUser.name||''; $('profile-bio-input').value=currentUser.bio||''; $('settings-email').textContent=currentUser.email||''; $('settings-join-date').textContent=currentUser.joinDate?new Date(currentUser.joinDate).toLocaleDateString():''; renderAchievements(); }
+async function saveProfile(){ const r=await api('/api/settings',{method:'POST',body:{name:$('change-name-input').value.trim(),bio:$('profile-bio-input').value.trim()}}); if(r.error){showSettingsFb(r.error,true);return;} updateAuthState(r.user); showSettingsFb('Saved!'); }
+async function savePassword(){ const c=$('current-password').value, n=$('new-password').value, cf=$('confirm-password').value; if(n!==cf){showSettingsFb('Passwords do not match',true);return;} const r=await api('/api/settings',{method:'POST',body:{currentPassword:c,newPassword:n}}); if(r.error){showSettingsFb(r.error,true);return;} showSettingsFb('Password updated!'); }
+function showSettingsFb(msg,err=false){ const el=$('settings-feedback'); el.textContent=msg; el.classList.remove('hidden'); el.style.color=err?'red':'green'; setTimeout(()=>el.classList.add('hidden'),3000); }
+function renderAchievements(){ const g=$('achievements-grid'); if(!g||!currentUser)return; const all=[{id:'speedster_50',name:'Speedster',desc:'50 WPM',icon:'⚡'},{id:'speedster_100',name:'Speed Demon',desc:'100 WPM',icon:'🚀'},{id:'speed_150',name:'Lightning',desc:'150 WPM',icon:'⚡⚡'},{id:'perfectionist',name:'Perfectionist',desc:'100% accuracy',icon:'🎯'},{id:'dedicated',name:'Dedicated',desc:'10 races',icon:'🏃'},{id:'centurion',name:'Centurion',desc:'100 races',icon:'💯'}]; const earned=currentUser.achievements||[]; g.innerHTML=all.map(a=>`<div style="padding:.75rem;border:1px solid var(--input-border,#ccc);border-radius:8px;text-align:center;opacity:${earned.includes(a.id)?1:0.35}"><div style="font-size:1.8rem">${a.icon}</div><div style="font-weight:700;font-size:.9em">${a.name}</div><div style="font-size:.8em;color:var(--text-secondary,#888)">${a.desc}</div></div>`).join(''); }
+
+// ── Community Quotes ──
+async function openCommunityModal(){ $('community-quotes-modal').classList.remove('hidden'); await renderCommunityQuotes(); }
+async function renderCommunityQuotes(){ const search=$('community-quote-search')?.value||'', sort=$('community-quote-sort')?.value||'newest', l=$('community-quotes-list'); l.innerHTML=''; try{ const qs=await api(`/api/quotes/community?search=${encodeURIComponent(search)}&sort=${sort}`); if(!qs.length){$('no-community-quotes-msg').classList.remove('hidden');return;} $('no-community-quotes-msg').classList.add('hidden'); qs.forEach(q=>{ const el=document.createElement('div'); el.style.cssText='border:1px solid var(--input-border,#ccc);padding:1rem;margin-bottom:.5rem;border-radius:8px'; el.innerHTML=`<div style="font-style:italic;margin-bottom:.4rem">"${q.text}"</div><div style="font-size:.85em;color:var(--text-secondary,#888)">— ${q.authorName}</div><button style="margin-top:.4rem;padding:.3rem .8rem;cursor:pointer;border-radius:4px;border:none;background:var(--accent,#7c3aed);color:#fff">Play</button>`; el.querySelector('button').addEventListener('click',()=>{ currentCommunityQuoteText=q.text; $('community-quotes-modal').classList.add('hidden'); showGameUI('solo'); selectedMode='community-quote'; startNewGame(); }); l.appendChild(el); }); }catch{ $('no-community-quotes-msg').classList.remove('hidden'); } }
+async function publishQuote(){ if(!currentUser){alert('Please log in first.');return;} const text=$('new-quote-textarea').value.trim(); if(text.length<100||text.length>400){$('create-quote-feedback').textContent='Quote must be 100-400 characters.';$('create-quote-feedback').classList.remove('hidden');return;} if($('ai-enhance-checkbox')?.checked){ $('publish-quote-btn').disabled=true; $('publish-quote-btn').querySelector('.btn-text').textContent='Enhancing…'; try{ const r=await api('/api/quotes/community/enhance',{method:'POST',body:{text}}); pendingQuoteData={text,enhancedText:r.enhanced}; $('original-quote-preview').textContent=text; $('enhanced-quote-preview').textContent=r.enhanced; document.querySelectorAll('.community-tab-content').forEach(v=>v.classList.add('hidden')); $('ai-approval-view').classList.remove('hidden'); }finally{$('publish-quote-btn').disabled=false;$('publish-quote-btn').querySelector('.btn-text').textContent='Publish Quote';} return; } await submitQuote(text); }
+async function submitQuote(text){ const r=await api('/api/quotes/community',{method:'POST',body:{text}}); if(r.error){$('create-quote-feedback').textContent=r.error;$('create-quote-feedback').classList.remove('hidden');return;} $('create-quote-feedback').textContent='Published! 🎉';$('create-quote-feedback').classList.remove('hidden'); $('new-quote-textarea').value=''; setTimeout(()=>{ document.querySelectorAll('.community-tab-content').forEach(v=>v.classList.add('hidden')); $('browse-quotes-view').classList.remove('hidden'); document.querySelectorAll('.community-tab-btn').forEach(b=>b.classList.remove('active')); document.querySelector('.community-tab-btn[data-tab="browse-quotes"]').classList.add('active'); renderCommunityQuotes(); },1500); }
+
+// ── Sound ──
+function playSound(type){ if(!isSoundOn)return; if(!audioContext)audioContext=new(window.AudioContext||window.webkitAudioContext)(); if(audioContext.state==='suspended')audioContext.resume(); const o=audioContext.createOscillator(), g=audioContext.createGain(); o.connect(g); g.connect(audioContext.destination); const n=audioContext.currentTime; if(type==='keypress'){o.type='sine';o.frequency.setValueAtTime(600,n);o.frequency.exponentialRampToValueAtTime(300,n+.1);g.gain.setValueAtTime(.1,n);g.gain.exponentialRampToValueAtTime(.01,n+.1);o.start(n);o.stop(n+.1);}else if(type==='error'){o.type='sawtooth';o.frequency.setValueAtTime(150,n);o.frequency.linearRampToValueAtTime(100,n+.15);g.gain.setValueAtTime(.1,n);g.gain.exponentialRampToValueAtTime(.01,n+.15);o.start(n);o.stop(n+.15);}else if(type==='start'){o.type='triangle';o.frequency.setValueAtTime(440,n);o.frequency.setValueAtTime(880,n+.1);g.gain.setValueAtTime(.1,n);g.gain.linearRampToValueAtTime(0,n+.3);o.start(n);o.stop(n+.3);}else if(type==='finish'){o.type='sine';[523.25,659.25,783.99,1046.5].forEach((f,i)=>o.frequency.setValueAtTime(f,n+i*.1));g.gain.setValueAtTime(.1,n);g.gain.linearRampToValueAtTime(0,n+.6);o.start(n);o.stop(n+.6);} }
+
+function showAchToast(name,icon='🏆'){ $('achievement-toast-icon').textContent=icon; $('achievement-toast-name').textContent=name; $('achievement-toast').classList.remove('hidden'); setTimeout(()=>$('achievement-toast').classList.add('hidden'),3000); }
+
+// ── Theme ──
+function applyTheme(theme){
+  document.body.className = document.body.className.replace(/\btheme-\S+/g,'').trim();
+  if(theme && theme!=='default') document.body.classList.add(`theme-${theme}`);
+  document.querySelectorAll('.theme-option').forEach(o=>o.classList.toggle('active', o.dataset.theme===theme));
+}
+
+// ══════════════════════════════════════════════
+// MULTIPLAYER
+// ══════════════════════════════════════════════
+
+function openMpModal(){ $('multiplayer-modal').classList.remove('hidden'); showMpView('select'); }
+function closeMpModal(){ $('multiplayer-modal').classList.add('hidden'); }
+
+function showMpView(v){
+  ['select','lobby','results'].forEach(n=>$(`mp-view-${n}`).classList.add('hidden'));
+  $(`mp-view-${v}`).classList.remove('hidden');
+}
+
+function mpPlayerName(){ return currentUser?.name || 'Guest_' + Math.random().toString(36).slice(2,5); }
+
+$('mp-create-btn').addEventListener('click', ()=>{
+  socket.emit('create_room', {name: mpPlayerName()});
+});
+
+$('mp-show-join-btn').addEventListener('click', ()=>{
+  $('mp-join-form').classList.toggle('hidden');
+});
+
+$('mp-do-join-btn').addEventListener('click', ()=>{
+  const code = $('mp-join-code-input').value.toUpperCase().trim();
+  if(!code){ $('mp-select-error').textContent='Enter a room code.'; $('mp-select-error').classList.remove('hidden'); return; }
+  socket.emit('join_room_mp', {code, name: mpPlayerName()});
+});
+
+$('mp-back-btn').addEventListener('click', ()=>{
+  if(mpCode) socket.emit('leave_room', {code: mpCode});
+  mpCode=null; mpIsHost=false;
+  showMpView('select');
+});
+
+$('mp-start-btn').addEventListener('click', ()=>{
+  if(!mpCode||!mpIsHost)return;
+  socket.emit('start_race_mp', {code: mpCode, difficulty: $('mp-difficulty-select').value});
+});
+
+$('mp-copy-code-btn').addEventListener('click', ()=>{
+  navigator.clipboard.writeText(mpCode||'').catch(()=>{});
+  $('mp-copy-code-btn').textContent='Copied!';
+  setTimeout(()=>$('mp-copy-code-btn').textContent='Copy',2000);
+});
+
+$('mp-chat-send').addEventListener('click', sendChat);
+$('mp-chat-input').addEventListener('keydown', e=>{ if(e.key==='Enter')sendChat(); });
+function sendChat(){ const msg=$('mp-chat-input').value.trim(); if(!msg||!mpCode)return; socket.emit('chat_message',{code:mpCode,message:msg}); $('mp-chat-input').value=''; }
+
+$('mp-play-again-btn').addEventListener('click', ()=>{
+  if(mpIsHost) showMpView('lobby');
+  else showMpView('lobby');
+});
+
+$('mp-leave-race-btn').addEventListener('click', ()=>{
+  mpActive=false; mpCode=null; mpIsHost=false;
+  $('mp-race-panel').classList.add('hidden');
+  resetStats(); showMainMenu();
+});
+
+$('close-mp-modal-btn').addEventListener('click', closeMpModal);
+
+// ── Socket events ──
+socket.on('room_created', ({code})=>{
+  mpCode=code; mpIsHost=true;
+  $('mp-display-code').textContent=code;
+  $('mp-host-controls').classList.remove('hidden');
+  $('mp-waiting-msg').classList.add('hidden');
+  showMpView('lobby');
+  $('mp-select-error').classList.add('hidden');
+});
+
+socket.on('room_joined', ({code})=>{
+  mpCode=code; mpIsHost=false;
+  $('mp-display-code').textContent=code;
+  $('mp-host-controls').classList.add('hidden');
+  $('mp-waiting-msg').classList.remove('hidden');
+  showMpView('lobby');
+  $('mp-select-error').classList.add('hidden');
+});
+
+socket.on('mp_error', ({message})=>{
+  $('mp-select-error').textContent=message;
+  $('mp-select-error').classList.remove('hidden');
+});
+
+socket.on('room_update', (snap)=>{
+  // Update player list in lobby
+  const list=$('mp-player-list'); list.innerHTML='';
+  snap.players.forEach(p=>{
+    const row=document.createElement('div'); row.className='mp-player-row';
+    const isHost=p.sid===snap.host;
+    row.innerHTML=`<span class="mp-player-name">${isHost?'👑 ':''}${p.name}</span>
+      <div class="mp-player-bar-wrap"><div class="mp-player-bar" id="mpbar-${p.sid}" style="width:0%"></div></div>
+      <span class="mp-player-wpm" id="mpwpm-${p.sid}"></span>`;
+    list.appendChild(row);
+  });
+  // Update race panel bars if race is active
+  if(mpActive){
+    const bars=$('mp-race-bars'); bars.innerHTML='';
+    snap.players.forEach(p=>{
+      const qLen=quoteDisplay.querySelectorAll('span').length||1;
+      const pct=Math.min(100,(p.progress/qLen)*100);
+      bars.innerHTML+=`<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.2rem">
+        <span style="min-width:90px;font-size:.8em;font-weight:600">${p.name}</span>
+        <div style="flex:1;background:var(--input-border,#e0e0e0);border-radius:99px;height:8px">
+          <div style="width:${pct}%;height:100%;border-radius:99px;background:var(--accent,#7c3aed);transition:width .3s"></div>
+        </div>
+        <span style="font-size:.75em;color:var(--text-secondary,#888);min-width:50px;text-align:right">${p.finished?p.wpm+' WPM':''}</span>
+      </div>`;
+    });
+  }
+});
+
+socket.on('race_started', ({quote})=>{
+  closeMpModal();
+  mpActive=true;
+  $('mp-race-panel').classList.remove('hidden');
+  // Start the game UI
+  $('main-menu').classList.add('hidden');
+  $('game-ui-container').classList.remove('hidden');
+  $('game-modes').classList.add('hidden');
+  $('difficulty-selector').classList.add('hidden');
+  $('ai-difficulty-sliders').classList.add('hidden');
+  $('stats').classList.remove('hidden');
+  $('progress-bar-container').classList.remove('hidden');
+  selectedMode='race-players';
+  displayQuote(quote);
+  resetStats();
+  startBtn.classList.add('hidden');
+  stopBtn.classList.remove('hidden');
+  stopBtn.textContent='Leave Race';
+  quoteInput.disabled=false; quoteInput.focus();
+  playSound('start');
+});
+
+socket.on('chat_message', ({name, message})=>{
+  const msgs=$('mp-chat-messages');
+  const line=document.createElement('div'); line.className='mp-chat-line';
+  line.innerHTML=`<span class="mp-chat-who">${name}:</span> ${message}`;
+  msgs.appendChild(line); msgs.scrollTop=msgs.scrollHeight;
+});
+
+socket.on('race_over', ({winner, results})=>{
+  mpActive=false;
+  $('mp-race-panel').classList.add('hidden');
+  playSound('finish');
+  // Show multiplayer results
+  $('mp-winner-heading').textContent=`🏆 ${winner} Wins!`;
+  const tbody=$('mp-results-tbody'); tbody.innerHTML='';
+  results.forEach((p,i)=>{
+    const tr=document.createElement('tr');
+    if(i===0)tr.className='winner-row';
+    tr.innerHTML=`<td>${i+1}</td><td>${p.name}</td><td>${p.wpm}</td><td>${p.accuracy}%</td>`;
+    tbody.appendChild(tr);
+  });
+  $('multiplayer-modal').classList.remove('hidden');
+  showMpView('results');
+  resetStats(); showMainMenu();
+  // Save score
+  if(results.length){
+    const mine=results.find(p=>p.name===(currentUser?.name||''));
+    if(mine) api('/api/scores',{method:'POST',body:{wpm:mine.wpm,accuracy:mine.accuracy,mode:'race-players',difficulty:'easy'}});
+  }
+});
+
+// ══════════════════════════════════════════════
+// EVENT LISTENERS
+// ══════════════════════════════════════════════
+
+document.querySelectorAll('.menu-card[data-menu]').forEach(c=>c.addEventListener('click',()=>{
+  const m=c.dataset.menu;
+  if(m==='solo')showGameUI('solo');
+  else if(m==='ai')showGameUI('ai');
+  else if(m==='multiplayer')openMpModal();
+  else if(m==='zen')showGameUI('zen');
+}));
+
+$('community-quotes-btn').addEventListener('click', openCommunityModal);
+$('back-to-menu-btn').addEventListener('click', showMainMenu);
+
+startBtn.addEventListener('click',()=>{ if(selectedMode==='zen'){quoteInput.disabled=false;quoteInput.focus();gameInProgress=true;return;} startNewGame(); });
+stopBtn.addEventListener('click',()=>{ if(mpActive){socket.emit('leave_room',{code:mpCode});mpActive=false;mpCode=null;$('mp-race-panel').classList.add('hidden');} selectedMode==='zen'?startNewGame():leaveRace(); });
+
+quoteInput.addEventListener('input', handleInput);
+quoteInput.addEventListener('paste', e=>e.preventDefault());
+
+document.querySelectorAll('.mode-btn').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.mode-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+  selectedMode=b.dataset.mode||'quote'; timeLimit=parseInt(b.dataset.time||'0'); resetStats();
+}));
+
+document.querySelectorAll('.difficulty-btn').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.difficulty-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+  selectedDifficulty=b.dataset.difficulty||'easy';
+  $('custom-wpm-container').classList.toggle('hidden',selectedDifficulty!=='custom');
+  if(!$('game-ui-container').classList.contains('hidden'))startNewGame();
+}));
+
+$('ai-wpm-slider')?.addEventListener('input',()=>{ $('ai-wpm-value').textContent=`${$('ai-wpm-slider').value} WPM`; });
+$('ai-mistake-slider')?.addEventListener('input',()=>{ $('ai-mistake-value').textContent=`${$('ai-mistake-slider').value}%`; });
+
+$('login-btn').addEventListener('click',()=>$('auth-modal').classList.remove('hidden'));
+$('close-auth-modal-btn').addEventListener('click',()=>$('auth-modal').classList.add('hidden'));
+$('do-login-btn').addEventListener('click',doLogin);
+$('do-signup-btn').addEventListener('click',doSignup);
+$('logout-btn').addEventListener('click',doLogout);
+
+document.querySelector('.auth-tabs').addEventListener('click',e=>{ const b=e.target.closest('.auth-tab-btn'); if(!b)return; document.querySelectorAll('.auth-tab-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active'); document.querySelectorAll('.auth-form').forEach(f=>f.classList.add('hidden')); $(b.dataset.form).classList.remove('hidden'); $('auth-error').classList.add('hidden'); });
+
+$('user-profile-clickable')?.addEventListener('click',e=>{ e.stopPropagation(); $('profile-dropdown').classList.toggle('hidden'); });
+document.addEventListener('click',e=>{ if(!$('user-profile').contains(e.target))$('profile-dropdown').classList.add('hidden'); });
+
+$('settings-btn').addEventListener('click',openSettings);
+$('close-settings-modal-btn').addEventListener('click',()=>$('settings-modal').classList.add('hidden'));
+$('save-profile-btn').addEventListener('click',saveProfile);
+$('save-password-btn').addEventListener('click',savePassword);
+document.querySelector('.settings-tabs').addEventListener('click',e=>{ const b=e.target.closest('.settings-tab-btn'); if(!b)return; document.querySelectorAll('.settings-tab-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active'); document.querySelectorAll('.settings-tab-content').forEach(t=>t.classList.add('hidden')); $(`${b.dataset.tab}-tab`)?.classList.remove('hidden'); });
+
+$('high-scores-btn').addEventListener('click',openHighScores);
+$('close-high-scores-modal-btn').addEventListener('click',()=>$('high-scores-modal').classList.add('hidden'));
+$('clear-scores-btn').addEventListener('click',async()=>{ await api('/api/scores/clear',{method:'POST'}); await loadPersonalScores(); });
+document.querySelector('.scores-tabs').addEventListener('click',e=>{ const b=e.target.closest('.scores-tab-btn'); if(!b)return; document.querySelectorAll('.scores-tab-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active'); document.querySelectorAll('.scores-tab-content').forEach(t=>t.classList.add('hidden')); $(`${b.dataset.tab}-scores-tab`)?.classList.remove('hidden'); });
+
+$('new-race-btn').addEventListener('click',()=>{ $('results-modal').classList.add('hidden'); startNewGame(); });
+$('share-score-btn').addEventListener('click',()=>{ const m=$('results-modal'); navigator.clipboard.writeText(`🏎️ TypeaRace: ${m.dataset.wpm} WPM in ${selectedMode} mode!`).catch(()=>{}); $('share-score-btn').textContent='Copied! ✓'; setTimeout(()=>$('share-score-btn').textContent='Share Score 📋',2000); });
+
+$('theme-toggle-btn').addEventListener('click',()=>document.body.classList.toggle('dark-mode'));
+$('theme-selector-btn').addEventListener('click',()=>$('theme-modal').classList.remove('hidden'));
+$('close-theme-modal-btn').addEventListener('click',()=>$('theme-modal').classList.add('hidden'));
+document.querySelectorAll('.theme-option').forEach(o=>o.addEventListener('click',()=>{ applyTheme(o.dataset.theme); if(currentUser)api('/api/settings',{method:'POST',body:{theme:o.dataset.theme}}); $('theme-modal').classList.add('hidden'); }));
+
+$('sound-toggle-btn').addEventListener('click',()=>{ isSoundOn=!isSoundOn; $('sound-toggle-btn').textContent=isSoundOn?'🔊':'🔇'; if(currentUser)api('/api/settings',{method:'POST',body:{isSoundOn}}); });
+
+$('close-community-modal-btn').addEventListener('click',()=>$('community-quotes-modal').classList.add('hidden'));
+$('publish-quote-btn').addEventListener('click',publishQuote);
+$('keep-original-btn').addEventListener('click',()=>pendingQuoteData&&submitQuote(pendingQuoteData.text));
+$('use-ai-version-btn').addEventListener('click',()=>pendingQuoteData&&submitQuote(pendingQuoteData.enhancedText));
+$('new-quote-textarea').addEventListener('input',()=>{ $('new-quote-char-counter').textContent=`${$('new-quote-textarea').value.length} / 400`; });
+$('community-quote-search').addEventListener('input',renderCommunityQuotes);
+$('community-quote-sort').addEventListener('change',renderCommunityQuotes);
+document.querySelector('.community-tabs').addEventListener('click',e=>{ const b=e.target.closest('.community-tab-btn'); if(!b)return; document.querySelectorAll('.community-tab-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active'); document.querySelectorAll('.community-tab-content').forEach(v=>v.classList.add('hidden')); $(`${b.dataset.tab}-view`)?.classList.remove('hidden'); });
+
+// ── Init ──
+(async()=>{
+  const me=await api('/api/me');
+  if(me.user)updateAuthState(me.user);
+  showMainMenu();
+})();
+</script>
+</body>
+</html>
