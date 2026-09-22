@@ -385,11 +385,12 @@ def _public_user(email):
 
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
     print("─" * 50)
     print("  TypeaRace  (Flask + Multiplayer)")
-    print("  Open: http://localhost:5000")
+    print(f"  Open: http://localhost:{port}")
     if not ANTHROPIC_API_KEY:
         print("\n  ⚠️  No ANTHROPIC_API_KEY — using fallback quotes.")
         print("  Set it: export ANTHROPIC_API_KEY=sk-ant-...")
     print("─" * 50)
-    socketio.run(app, debug=True, port=5000)
+    socketio.run(app, host="0.0.0.0", port=port, debug=False)
